@@ -34,47 +34,42 @@ pool.connect((err, client, release) => {
 app.get('/api/tasks', async (req, res) => {
   try {
     const { status } = req.query;
-    
+
     let query;
-    
-    // BUG 1: SQL Injection Vulnerability
-    // The status parameter is directly concatenated into the SQL query
-    // This allows SQL injection attacks
+    const values = [];
+
+    // FIXED BUG 1: SQL Injection Vulnerability
+    // FIXED BUG 2: N+1 Query Problem
     if (status) {
-      query = "SELECT * FROM tasks WHERE status = '" + status + "'";
+      query = `
+        SELECT tasks.*, users.name as "userName"
+        FROM tasks
+        LEFT JOIN users ON tasks.user_id = users.id
+        WHERE tasks.status = $1
+      `;
+      values.push(status);
     } else {
-      query = "SELECT * FROM tasks";
+      query = `
+        SELECT tasks.*, users.name as "userName"
+        FROM tasks
+        LEFT JOIN users ON tasks.user_id = users.id
+      `;
     }
-    
-    const result = await pool.query(query);
-    const tasks = result.rows;
-    
-    // BUG 2: N+1 Query Problem
-    // For each task, we make a separate query to fetch the user's name
-    // This is inefficient and should use a JOIN instead
-    const tasksWithUsers = [];
-    
-    for (let i = 0; i < tasks.length; i++) {
-      const task = tasks[i];
-      
-      // Make a separate database query for each task to get user name
-      const userQuery = "SELECT name FROM users WHERE id = '" + task.user_id + "'";
-      const userResult = await pool.query(userQuery);
-      
-      const taskWithUser = {
-        ...task,
-        userName: userResult.rows[0]?.name || 'Unknown'
-      };
-      
-      tasksWithUsers.push(taskWithUser);
-    }
-    
+
+    const result = await pool.query(query, values);
+
+    // Handle null/missing usernames gracefully to match prior behavior
+    const tasksWithUsers = result.rows.map(task => ({
+      ...task,
+      userName: task.userName || 'Unknown'
+    }));
+
     res.json({
       success: true,
       data: tasksWithUsers,
       count: tasksWithUsers.length
     });
-    
+
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({
@@ -91,7 +86,7 @@ app.put('/api/tasks/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     // Validate status
     const validStatuses = ['pending', 'in-progress', 'completed'];
     if (!validStatuses.includes(status)) {
@@ -101,11 +96,11 @@ app.put('/api/tasks/:id/status', async (req, res) => {
         message: 'Status must be one of: pending, in-progress, completed'
       });
     }
-    
+
     // Use parameterized query (CORRECT WAY)
     const query = 'UPDATE tasks SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *';
     const result = await pool.query(query, [status, id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
@@ -113,13 +108,13 @@ app.put('/api/tasks/:id/status', async (req, res) => {
         message: `No task found with id ${id}`
       });
     }
-    
+
     res.json({
       success: true,
       data: result.rows[0],
       message: 'Task status updated successfully'
     });
-    
+
   } catch (error) {
     console.error('Error updating task status:', error);
     res.status(500).json({

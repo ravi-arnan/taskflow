@@ -42,16 +42,15 @@ function App() {
     try {
       // First, call the API to update the task
       await axios.put(`/api/tasks/${taskId}/status`, { status: 'completed' });
-      
-      // BUG: Direct state mutation - this won't trigger a re-render
-      // The correct way would be to use .map() or spread operators to create a new array
-      const currentTasks = tasks;
-      currentTasks.find(t => t.id === taskId).status = 'completed';
-      setTasks(currentTasks);
-      
-      // Note: The UI won't update immediately because React doesn't detect the change
-      // You would need to refresh or fetch tasks again to see the update
-      
+
+      // FIXED BUG 3: Direct State Mutation
+      // Using .map() to create a new array, triggering a React re-render
+      setTasks(prevTasks =>
+        prevTasks.map(t =>
+          t.id === taskId ? { ...t, status: 'completed' } : t
+        )
+      );
+
     } catch (err) {
       console.error('Error marking task as completed:', err);
       alert('Failed to update task: ' + err.message);
@@ -80,7 +79,7 @@ function App() {
           </div>
           <p className="text-gray-800 text-lg font-semibold mb-2">Error</p>
           <p className="text-gray-600">{error}</p>
-          <button 
+          <button
             onClick={fetchTasks}
             className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
           >
@@ -104,8 +103,8 @@ function App() {
         <div className="mb-6 bg-white p-4 rounded-lg shadow">
           <div className="flex items-center gap-4">
             <label className="text-gray-700 font-medium">Filter by Status:</label>
-            <select 
-              value={filter} 
+            <select
+              value={filter}
               onChange={handleFilterChange}
               className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -114,7 +113,7 @@ function App() {
               <option value="in-progress">In Progress</option>
               <option value="completed">Completed</option>
             </select>
-            <button 
+            <button
               onClick={applyFilter}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
             >
@@ -141,9 +140,9 @@ function App() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {tasks.map(task => (
-              <TaskCard 
-                key={task.id} 
-                task={task} 
+              <TaskCard
+                key={task.id}
+                task={task}
                 onMarkCompleted={markCompleted}
               />
             ))}
