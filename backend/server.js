@@ -125,6 +125,76 @@ app.put('/api/tasks/:id/status', async (req, res) => {
   }
 });
 
+// GET /api/tasks/export - Export tasks to CSV
+app.get('/api/tasks/export', async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    let query;
+    const values = [];
+
+    // Ensure the export matches the frontend filter state
+    if (status) {
+      query = `
+        SELECT tasks.*, users.name as "userName"
+        FROM tasks
+        LEFT JOIN users ON tasks.user_id = users.id
+        WHERE tasks.status = $1
+        ORDER BY tasks.created_at DESC
+      `;
+      values.push(status);
+    } else {
+      query = `
+        SELECT tasks.*, users.name as "userName"
+        FROM tasks
+        LEFT JOIN users ON tasks.user_id = users.id
+        ORDER BY tasks.created_at DESC
+      `;
+    }
+
+    const result = await pool.query(query, values);
+
+    // Helper to escape CSV strings
+    const escapeCSV = (str) => {
+      if (str === null || str === undefined) return '';
+      const text = String(str);
+      if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const headers = ['ID', 'Title', 'Description', 'Status', 'Assigned User', 'Created Date'];
+    const csvRows = [headers.join(',')];
+
+    for (const task of result.rows) {
+      const row = [
+        escapeCSV(task.id),
+        escapeCSV(task.title),
+        escapeCSV(task.description),
+        escapeCSV(task.status),
+        escapeCSV(task.userName || 'Unknown'),
+        escapeCSV(new Date(task.created_at).toISOString())
+      ];
+      csvRows.push(row.join(','));
+    }
+
+    const csvString = csvRows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=tasks${status ? '-' + status : ''}.csv`);
+    res.send(csvString);
+
+  } catch (error) {
+    console.error('Error exporting tasks:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to export tasks',
+      message: error.message
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({

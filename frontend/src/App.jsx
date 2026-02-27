@@ -7,6 +7,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -33,6 +34,37 @@ function App() {
 
   const applyFilter = () => {
     fetchTasks();
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      setIsExporting(true);
+      const params = filter ? { status: filter } : {};
+
+      // We expect a blob response since it's a file download
+      const response = await axios.get('/api/tasks/export', {
+        params,
+        responseType: 'blob'
+      });
+
+      // Create a blob URL and trigger download
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `tasks${filter ? '-' + filter : ''}.csv`);
+      document.body.appendChild(link);
+      link.click();
+
+      // Cleanup
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exporting tasks:', err);
+      alert('Failed to export tasks. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // BUG 3: Direct State Mutation
@@ -101,23 +133,46 @@ function App() {
 
         {/* Filter Section */}
         <div className="mb-6 bg-white p-4 rounded-lg shadow">
-          <div className="flex items-center gap-4">
-            <label className="text-gray-700 font-medium">Filter by Status:</label>
-            <select
-              value={filter}
-              onChange={handleFilterChange}
-              className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Tasks</option>
-              <option value="pending">Pending</option>
-              <option value="in-progress">In Progress</option>
-              <option value="completed">Completed</option>
-            </select>
+          <div className="flex items-center gap-4 justify-between w-full">
+            <div className="flex items-center gap-4">
+              <label className="text-gray-700 font-medium">Filter by Status:</label>
+              <select
+                value={filter}
+                onChange={handleFilterChange}
+                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All Tasks</option>
+                <option value="pending">Pending</option>
+                <option value="in-progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+              <button
+                onClick={applyFilter}
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                Apply Filter
+              </button>
+            </div>
+
             <button
-              onClick={applyFilter}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              onClick={handleExportCSV}
+              disabled={isExporting}
+              className={`flex items-center gap-2 px-4 py-2 rounded font-medium text-white transition-colors
+                ${isExporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
             >
-              Apply Filter
+              {isExporting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Generating CSV...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download CSV
+                </>
+              )}
             </button>
           </div>
         </div>
