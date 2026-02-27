@@ -1,226 +1,113 @@
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+
+const { verifyDatabaseConnection, pool } = require('./db');
+const { TASK_STATUSES, isValidTaskStatus } = require('./constants/taskStatus');
+const { fetchTasks, updateTaskStatus } = require('./services/taskService');
+const { buildTasksCsv } = require('./utils/csv');
+const { sendError, sendSuccess } = require('./utils/http');
 
 const app = express();
+const HOST = process.env.HOST || '127.0.0.1';
 const PORT = process.env.PORT || 5001;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Database connection
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'taskflow',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'password',
-});
+const getStatusFilter = (value) => value || undefined;
 
-// Test database connection
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('Database connection error:', err.stack);
-  } else {
-    console.log('Connected to PostgreSQL database');
-    release();
-  }
-});
-
-// GET /api/tasks - Fetch tasks with optional status filter
-// NOTE: This endpoint has intentional bugs for the assessment
 app.get('/api/tasks', async (req, res) => {
   try {
-    const { status } = req.query;
+    const tasks = await fetchTasks({ status: getStatusFilter(req.query.status) });
 
-    let query;
-    const values = [];
-
-    // FIXED BUG 1: SQL Injection Vulnerability
-    // FIXED BUG 2: N+1 Query Problem
-    if (status) {
-      query = `
-        SELECT tasks.*, users.name as "userName"
-        FROM tasks
-        LEFT JOIN users ON tasks.user_id = users.id
-        WHERE tasks.status = $1
-      `;
-      values.push(status);
-    } else {
-      query = `
-        SELECT tasks.*, users.name as "userName"
-        FROM tasks
-        LEFT JOIN users ON tasks.user_id = users.id
-      `;
-    }
-
-    const result = await pool.query(query, values);
-
-    // Handle null/missing usernames gracefully to match prior behavior
-    const tasksWithUsers = result.rows.map(task => ({
-      ...task,
-      userName: task.userName || 'Unknown'
-    }));
-
-    res.json({
-      success: true,
-      data: tasksWithUsers,
-      count: tasksWithUsers.length
+    sendSuccess(res, {
+      data: tasks,
+      count: tasks.length,
     });
-
   } catch (error) {
     console.error('Error fetching tasks:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch tasks',
-      message: error.message
-    });
+    sendError(res, 500, 'Failed to fetch tasks', error.message);
   }
 });
 
-// PUT /api/tasks/:id/status - Update task status
-// This endpoint is written correctly (for comparison)
 app.put('/api/tasks/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    // Validate status
-    const validStatuses = ['pending', 'in-progress', 'completed'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid status',
-        message: 'Status must be one of: pending, in-progress, completed'
-      });
+    if (!isValidTaskStatus(status)) {
+      return sendError(
+        res,
+        400,
+        'Invalid status',
+        `Status must be one of: ${TASK_STATUSES.join(', ')}`
+      );
     }
 
-    // Use parameterized query (CORRECT WAY)
-    const query = 'UPDATE tasks SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *';
-    const result = await pool.query(query, [status, id]);
+    const updatedTask = await updateTaskStatus({ id, status });
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Task not found',
-        message: `No task found with id ${id}`
-      });
+    if (!updatedTask) {
+      return sendError(res, 404, 'Task not found', `No task found with id ${id}`);
     }
 
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: 'Task status updated successfully'
+    return sendSuccess(res, {
+      data: updatedTask,
+      message: 'Task status updated successfully',
     });
-
   } catch (error) {
     console.error('Error updating task status:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update task status',
-      message: error.message
-    });
+    return sendError(res, 500, 'Failed to update task status', error.message);
   }
 });
 
-// GET /api/tasks/export - Export tasks to CSV
 app.get('/api/tasks/export', async (req, res) => {
   try {
-    const { status } = req.query;
-
-    let query;
-    const values = [];
-
-    // Ensure the export matches the frontend filter state
-    if (status) {
-      query = `
-        SELECT tasks.*, users.name as "userName"
-        FROM tasks
-        LEFT JOIN users ON tasks.user_id = users.id
-        WHERE tasks.status = $1
-        ORDER BY tasks.created_at DESC
-      `;
-      values.push(status);
-    } else {
-      query = `
-        SELECT tasks.*, users.name as "userName"
-        FROM tasks
-        LEFT JOIN users ON tasks.user_id = users.id
-        ORDER BY tasks.created_at DESC
-      `;
-    }
-
-    const result = await pool.query(query, values);
-
-    // Helper to escape CSV strings
-    const escapeCSV = (str) => {
-      if (str === null || str === undefined) return '';
-      const text = String(str);
-      if (text.includes(',') || text.includes('"') || text.includes('\n')) {
-        return `"${text.replace(/"/g, '""')}"`;
-      }
-      return text;
-    };
-
-    const headers = ['ID', 'Title', 'Description', 'Status', 'Assigned User', 'Created Date'];
-    const csvRows = [headers.join(',')];
-
-    for (const task of result.rows) {
-      const row = [
-        escapeCSV(task.id),
-        escapeCSV(task.title),
-        escapeCSV(task.description),
-        escapeCSV(task.status),
-        escapeCSV(task.userName || 'Unknown'),
-        escapeCSV(new Date(task.created_at).toISOString())
-      ];
-      csvRows.push(row.join(','));
-    }
-
-    const csvString = csvRows.join('\n');
+    const status = getStatusFilter(req.query.status);
+    const tasks = await fetchTasks({ status, orderByCreatedAtDesc: true });
+    const csv = buildTasksCsv(tasks);
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=tasks${status ? '-' + status : ''}.csv`);
-    res.send(csvString);
-
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=tasks${status ? `-${status}` : ''}.csv`
+    );
+    res.send(csv);
   } catch (error) {
     console.error('Error exporting tasks:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to export tasks',
-      message: error.message
-    });
+    sendError(res, 500, 'Failed to export tasks', error.message);
   }
 });
 
-// Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
+  sendSuccess(res, {
     message: 'TaskFlow API is running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  res.status(500).json({
-    success: false,
-    error: 'Internal server error',
-    message: err.message
-  });
+  sendError(res, 500, 'Internal server error', err.message);
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`TaskFlow API server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
+const server = app.listen(PORT, HOST, async () => {
+  console.log(`TaskFlow API server running on http://${HOST}:${PORT}`);
+  console.log(`Health check: http://${HOST}:${PORT}/api/health`);
+
+  try {
+    await verifyDatabaseConnection();
+  } catch (error) {
+    console.error('Database connection error:', error.stack);
+  }
 });
 
-// Graceful shutdown
+server.on('error', (error) => {
+  console.error(`Failed to start server on ${HOST}:${PORT}`, error);
+  process.exit(1);
+});
+
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...');
   await pool.end();

@@ -1,34 +1,10 @@
 import React from 'react';
 
-const statusConfig = {
-  pending: {
-    label: 'Pending',
-    badge: 'bg-amber-50 text-amber-700',
-  },
-  'in-progress': {
-    label: 'In progress',
-    badge: 'bg-sky-50 text-sky-700',
-  },
-  completed: {
-    label: 'Completed',
-    badge: 'bg-emerald-50 text-emerald-700',
-  },
-};
-
-const formatDate = (dateString) => {
-  if (!dateString) {
-    return 'N/A';
-  }
-
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-};
+import { TASK_STATUS_CONFIG } from '../constants/taskOptions';
+import { formatTaskDate } from '../utils/taskUtils';
 
 const TaskCard = ({ task, onMarkCompleted }) => {
-  const config = statusConfig[task.status] || {
+  const statusConfig = TASK_STATUS_CONFIG[task.status] || {
     label: task.status,
     badge: 'bg-slate-100 text-slate-700',
   };
@@ -40,8 +16,8 @@ const TaskCard = ({ task, onMarkCompleted }) => {
           <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
           <p className="mt-1 text-sm text-slate-500">Assigned to {task.userName}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${config.badge}`}>
-          {config.label}
+        <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusConfig.badge}`}>
+          {statusConfig.label}
         </span>
       </div>
 
@@ -50,7 +26,7 @@ const TaskCard = ({ task, onMarkCompleted }) => {
       </p>
 
       <div className="mt-5 flex items-center justify-between text-sm text-slate-500">
-        <span>Created {formatDate(task.created_at)}</span>
+        <span>Created {formatTaskDate(task.created_at)}</span>
         <span>ID {task.id.slice(0, 8)}</span>
       </div>
 
