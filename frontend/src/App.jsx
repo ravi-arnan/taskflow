@@ -1,6 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import TaskCard from './components/TaskCard';
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in-progress', label: 'In progress' },
+  { value: 'completed', label: 'Completed' },
+];
 
 function App() {
   const [tasks, setTasks] = useState([]);
@@ -40,14 +47,11 @@ function App() {
     try {
       setIsExporting(true);
       const params = filter ? { status: filter } : {};
-
-      // We expect a blob response since it's a file download
       const response = await axios.get('/api/tasks/export', {
         params,
-        responseType: 'blob'
+        responseType: 'blob',
       });
 
-      // Create a blob URL and trigger download
       const blob = new Blob([response.data], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -55,8 +59,6 @@ function App() {
       link.setAttribute('download', `tasks${filter ? '-' + filter : ''}.csv`);
       document.body.appendChild(link);
       link.click();
-
-      // Cleanup
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
@@ -67,34 +69,58 @@ function App() {
     }
   };
 
-  // BUG 3: Direct State Mutation
-  // This function mutates the state directly instead of creating a new array
-  // This will cause the UI to not re-render properly
   const markCompleted = async (taskId) => {
     try {
-      // First, call the API to update the task
       await axios.put(`/api/tasks/${taskId}/status`, { status: 'completed' });
 
-      // FIXED BUG 3: Direct State Mutation
-      // Using .map() to create a new array, triggering a React re-render
-      setTasks(prevTasks =>
-        prevTasks.map(t =>
-          t.id === taskId ? { ...t, status: 'completed' } : t
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task.id === taskId ? { ...task, status: 'completed' } : task
         )
       );
-
     } catch (err) {
       console.error('Error marking task as completed:', err);
       alert('Failed to update task: ' + err.message);
     }
   };
 
+  const stats = tasks.reduce(
+    (summary, task) => {
+      summary.total += 1;
+
+      if (task.status === 'pending') {
+        summary.pending += 1;
+      }
+
+      if (task.status === 'in-progress') {
+        summary.inProgress += 1;
+      }
+
+      if (task.status === 'completed') {
+        summary.completed += 1;
+      }
+
+      return summary;
+    },
+    { total: 0, pending: 0, inProgress: 0, completed: 0 }
+  );
+
+  const activeFilterLabel =
+    STATUS_OPTIONS.find((option) => option.value === filter)?.label || 'All statuses';
+
+  const statCards = [
+    { label: 'Total', value: stats.total },
+    { label: 'Pending', value: stats.pending },
+    { label: 'In progress', value: stats.inProgress },
+    { label: 'Completed', value: stats.completed },
+  ];
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-[#f6f7f4] px-6">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading tasks...</p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-slate-200 border-t-slate-900"></div>
+          <p className="mt-4 text-sm text-slate-500">Loading tasks...</p>
         </div>
       </div>
     );
@@ -102,18 +128,14 @@ function App() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md">
-          <div className="text-red-600 mb-4">
-            <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-gray-800 text-lg font-semibold mb-2">Error</p>
-          <p className="text-gray-600">{error}</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#f6f7f4] px-6">
+        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+          <p className="text-sm font-medium text-rose-500">Error</p>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Dashboard unavailable</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">{error}</p>
           <button
             onClick={fetchTasks}
-            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="mt-6 rounded-full bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
           >
             Retry
           </button>
@@ -123,86 +145,97 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">TaskFlow</h1>
-          <p className="text-gray-600">Manage your tasks efficiently</p>
-        </div>
+    <div className="min-h-screen bg-[#f6f7f4] text-slate-900">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+        <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-slate-500">TaskFlow</p>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+                Clean task management for daily operations
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+                Review tasks, filter the current workload, and export exactly what is visible on the screen.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              Current view: <span className="font-medium text-slate-900">{activeFilterLabel}</span>
+            </div>
+          </div>
+        </section>
 
-        {/* Filter Section */}
-        <div className="mb-6 bg-white p-4 rounded-lg shadow">
-          <div className="flex items-center gap-4 justify-between w-full">
-            <div className="flex items-center gap-4">
-              <label className="text-gray-700 font-medium">Filter by Status:</label>
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {statCards.map((card) => (
+            <div key={card.label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-sm text-slate-500">{card.label}</p>
+              <p className="mt-3 text-3xl font-semibold text-slate-900">{card.value}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="mt-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Filters</h2>
+              <p className="mt-2 text-sm text-slate-600">Narrow the board and export the same result set.</p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
               <select
                 value={filter}
                 onChange={handleFilterChange}
-                className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="min-w-[220px] rounded-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
               >
-                <option value="">All Tasks</option>
-                <option value="pending">Pending</option>
-                <option value="in-progress">In Progress</option>
-                <option value="completed">Completed</option>
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value || 'all'} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
+
               <button
                 onClick={applyFilter}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                className="rounded-full border border-slate-200 bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
               >
-                Apply Filter
+                Apply filter
+              </button>
+
+              <button
+                onClick={handleExportCSV}
+                disabled={isExporting}
+                className={`rounded-full px-5 py-3 text-sm font-medium transition ${
+                  isExporting
+                    ? 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400'
+                    : 'border border-slate-200 bg-white text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                {isExporting ? 'Preparing CSV...' : 'Download CSV'}
               </button>
             </div>
-
-            <button
-              onClick={handleExportCSV}
-              disabled={isExporting}
-              className={`flex items-center gap-2 px-4 py-2 rounded font-medium text-white transition-colors
-                ${isExporting ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
-            >
-              {isExporting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Generating CSV...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Download CSV
-                </>
-              )}
-            </button>
           </div>
-        </div>
+        </section>
 
-        {/* Tasks Count */}
-        <div className="mb-4">
-          <p className="text-gray-600">
-            Showing <span className="font-semibold">{tasks.length}</span> tasks
-          </p>
-        </div>
+        <section className="mt-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-slate-900">Tasks</h2>
+            <p className="text-sm text-slate-500">
+              {tasks.length} {tasks.length === 1 ? 'item' : 'items'}
+            </p>
+          </div>
 
-        {/* Tasks Grid */}
-        {tasks.length === 0 ? (
-          <div className="text-center py-12">
-            <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-            <p className="text-gray-600 text-lg">No tasks found</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tasks.map(task => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                onMarkCompleted={markCompleted}
-              />
-            ))}
-          </div>
-        )}
+          {tasks.length === 0 ? (
+            <div className="rounded-[28px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
+              <p className="text-lg font-medium text-slate-900">No tasks found</p>
+              <p className="mt-2 text-sm text-slate-600">Try changing the filter and request the list again.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {tasks.map((task) => (
+                <TaskCard key={task.id} task={task} onMarkCompleted={markCompleted} />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
