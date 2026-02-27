@@ -1,0 +1,4 @@
+BUGS_REFERENCE.md
+frontend/node_modules
+backend/node_modules
+.env
