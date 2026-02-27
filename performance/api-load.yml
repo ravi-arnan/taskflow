@@ -1,0 +1,45 @@
+config:
+  target: "http://127.0.0.1:5001"
+  phases:
+    - duration: 20
+      arrivalRate: 5
+      name: warm-up
+    - duration: 30
+      arrivalRate: 15
+      rampTo: 30
+      name: ramp-up
+    - duration: 30
+      arrivalRate: 30
+      name: sustained-load
+  defaults:
+    headers:
+      Accept: application/json
+
+scenarios:
+  - name: list-all-tasks
+    weight: 4
+    flow:
+      - get:
+          url: "/api/tasks"
+
+  - name: list-pending-tasks
+    weight: 2
+    flow:
+      - get:
+          url: "/api/tasks?status=pending"
+
+  - name: export-all-tasks
+    weight: 2
+    flow:
+      - get:
+          url: "/api/tasks/export"
+          headers:
+            Accept: text/csv
+
+  - name: export-completed-tasks
+    weight: 1
+    flow:
+      - get:
+          url: "/api/tasks/export?status=completed"
+          headers:
+            Accept: text/csv
